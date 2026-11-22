@@ -1,0 +1,54 @@
+name: Sync Vantage Packages
+
+on:
+  schedule:
+    # 每天 UTC 02:00（北京时间 10:00）自动检查更新，不需要可删掉这几行
+    - cron: "0 2 * * 7"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Sparse checkout upstream directories
+        run: |
+          UPSTREAM_URL="https://github.com/anothaDev/luci-theme-vantage.git"
+          UPSTREAM_BRANCH="main"
+          TARGET_DIRS="luci-app-vantage luci-theme-vantage"
+
+          rm -rf /tmp/upstream-vantage
+          git clone --depth=1 --filter=blob:none --sparse --branch "$UPSTREAM_BRANCH" "$UPSTREAM_URL" /tmp/upstream-vantage
+          cd /tmp/upstream-vantage
+          git sparse-checkout set --no-cone $TARGET_DIRS
+
+          for dir in $TARGET_DIRS; do
+            if [ ! -d "/tmp/upstream-vantage/$dir" ]; then
+              echo "Error: directory '$dir' not found in upstream repository."
+              exit 1
+            fi
+            rm -rf "$GITHUB_WORKSPACE/$dir"
+            mkdir -p "$GITHUB_WORKSPACE/$dir"
+            cp -a "/tmp/upstream-vantage/$dir/." "$GITHUB_WORKSPACE/$dir/"
+          done
+
+      - name: Commit and push changes if any
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add luci-app-vantage luci-theme-vantage
+
+          if git diff --staged --quiet; then
+            echo "No changes detected."
+          else
+            git commit -m "chore: sync luci-app-vantage and luci-theme-vantage from upstream"
+            git push
+          fi
